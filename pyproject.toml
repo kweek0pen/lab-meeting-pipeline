@@ -1,0 +1,26 @@
+[project]
+name = "lab-meeting-pipeline"
+version = "0.1.0"
+description = "연구실 회의 녹음 → 전사 → AI 회의록 → Notion 자동 등록"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.70",
+    "openai>=1.60",
+    "httpx>=0.27",
+    "numpy>=1.26",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",
+    "sounddevice>=0.4.7",
+    "soundfile>=0.12",
+    "streamlit>=1.40",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: 실제 Notion/OpenAI/Anthropic API를 호출 (RUN_INTEGRATION=1 일 때만)"]

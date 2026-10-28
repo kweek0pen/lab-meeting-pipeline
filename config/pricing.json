@@ -1,0 +1,17 @@
+{
+  "_comment": "API 가격표 (USD). 가격이 바뀌면 이 파일만 수정하세요. 확인일: 2026-10-28. 출처: https://developers.openai.com/api/docs/pricing , https://platform.claude.com/docs/en/about-claude/pricing",
+  "transcription_usd_per_minute": {
+    "gpt-transcribe": 0.0045,
+    "gpt-4o-transcribe": 0.006,
+    "gpt-4o-mini-transcribe": 0.003,
+    "gpt-4o-transcribe-diarize": 0.006,
+    "whisper-1": 0.006
+  },
+  "llm_usd_per_million_tokens": {
+    "claude-opus-5-5": {"input": 4.0, "output": 20.0},
+    "claude-sonnet-5-5": {"input": 2.0, "output": 10.0},
+    "claude-haiku-5-5": {"input": 0.1, "output": 0.5},
+    "gpt-6.1-sol": {"input": 2.0, "output": 10.0},
+    "gpt-6.1-terra": {"input": 1.0, "output": 5.0}
+  }
+}
