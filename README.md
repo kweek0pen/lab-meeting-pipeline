@@ -8,7 +8,7 @@
 4. Notion **회의록 모음 DB** 에 회의 페이지, **AI 녹취+요약본 DB** 에 정리본 페이지를 만들고
 5. 두 페이지를 Relation 으로 연결합니다.
 
-macOS(MacBook Air)와 Windows(LG Gram)에서 동작합니다. 프로그래밍을 몰라도 **더블클릭 → 브라우저 화면에서 버튼**만으로 사용할 수 있습니다.
+macOS와 Windows에서 동작합니다.
 
 ---
 
