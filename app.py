@@ -278,6 +278,14 @@ with tab_settings:
             st.error("OPENAI_API_KEY 칸에 Anthropic(Claude) 키(sk-ant-…)를 넣었습니다. OpenAI 키는 "
                      "platform.openai.com 에서 발급하며 보통 sk-proj- 로 시작합니다.")
             submitted = False
+        for label, value in (("회의록 모음 DB", meeting_db), ("AI 녹취+요약본 DB", ai_db)):
+            if submitted and value.strip().startswith(("ntn_", "secret_", "sk-")):
+                st.error(f"{label} 칸에 API 키/토큰이 들어 있습니다. 데이터베이스 링크(…notion.so/… 또는 "
+                         "notion.com/…)를 넣으세요. 키는 위쪽 API 키 칸에 넣습니다.")
+                submitted = False
+        if submitted and notion_key.strip() and not notion_key.strip().startswith(("ntn_", "secret_")):
+            st.error("NOTION_API_KEY 는 ntn_ 으로 시작하는 Integration 시크릿이어야 합니다.")
+            submitted = False
         if submitted and anthropic_key.strip() and not anthropic_key.strip().startswith("sk-ant-"):
             st.error("ANTHROPIC_API_KEY 는 sk-ant- 로 시작해야 합니다. OpenAI 키를 넣지 않았는지 확인하세요.")
             submitted = False

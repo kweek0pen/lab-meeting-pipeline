@@ -40,3 +40,14 @@ def test_notion_client_errors_do_not_include_token(fake_notion):
         client.get_database("11111111-1111-1111-1111-111111111111")
     assert token not in str(exc.value)
     logging.getLogger("labmeeting").handlers.clear()
+
+
+def test_db_id_error_never_echoes_secret():
+    import pytest
+
+    from labmeeting.notion_client import NotionError, parse_notion_id
+
+    for secret in ("ntn_238877943931AbCdEfGhIjKlMnOp", "sk-proj-AbCdEfGhIjKlMnOpQrStUv"):
+        with pytest.raises(NotionError) as exc:
+            parse_notion_id(secret)
+        assert secret not in str(exc.value) and "키" in str(exc.value)

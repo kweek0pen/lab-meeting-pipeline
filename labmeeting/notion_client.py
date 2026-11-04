@@ -34,7 +34,11 @@ def parse_notion_id(value: str) -> str:
     path = value.split("?")[0].split("#")[0]
     matches = re.findall(r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}", path)
     if not matches:
-        raise NotionError(f"Notion ID 를 인식할 수 없습니다: '{value[:80]}'. 데이터베이스 링크 전체를 붙여 넣으세요.")
+        # 입력값은 잘못 넣은 비밀키일 수 있으므로 메시지에 그대로 넣지 않는다
+        if value.startswith(("ntn_", "secret_", "sk-")):
+            raise NotionError("데이터베이스 칸에 API 키/토큰이 들어 있습니다. 데이터베이스 링크를 넣으세요.")
+        raise NotionError(f"Notion 데이터베이스 ID 를 찾을 수 없습니다 (입력 길이 {len(value)}자). "
+                          "데이터베이스를 연 뒤 '링크 복사' 한 주소 전체를 붙여 넣으세요.")
     raw = matches[-1].replace("-", "").lower()
     return f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
 

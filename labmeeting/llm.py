@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -21,6 +22,18 @@ class LLMResult:
     model: str
     input_tokens: int
     output_tokens: int
+
+
+def schema_instructions(schema: type[BaseModel]) -> str:
+    return ("\n\n## 출력 형식\n아래 JSON Schema 를 따르는 JSON 객체 하나만 출력하라. "
+            "코드 블록 표시(```)나 설명 문장 없이 { 로 시작해 } 로 끝나야 한다. 모든 필드를 빠짐없이 채운다.\n"
+            + json.dumps(schema.model_json_schema(), ensure_ascii=False))
+
+
+def extract_json(text: str) -> str:
+    """응답 앞뒤에 붙은 코드 블록 표시나 문장을 떼어 JSON 객체 부분만 남긴다."""
+    start, end = text.find("{"), text.rfind("}")
+    return text[start:end + 1] if start != -1 and end > start else text
 
 
 class LLMProvider(Protocol):
@@ -45,16 +58,15 @@ class AnthropicProvider:
 
         try:
             # 긴 출력이므로 스트리밍으로 받는다 (HTTP 타임아웃 방지).
+            # 회의록 스키마는 API 의 구조화 출력(문법 제약)에 비해 너무 커서 400 이 나므로,
+            # 스키마를 지시문에 넣고 결과는 minutes.py 가 Pydantic 으로 검증·재시도한다.
             # fallbacks="default": 안전 분류기가 요청을 거절하면 서버가 다른 모델로 자동 재시도.
             with self.client.beta.messages.stream(
                 model=self.model,
                 max_tokens=self.MAX_TOKENS,
-                system=system,
+                system=system + schema_instructions(schema),
                 messages=[{"role": "user", "content": user}],
-                output_config={
-                    "effort": self.effort,
-                    "format": {"type": "json_schema", "schema": anthropic.transform_schema(schema)},
-                },
+                output_config={"effort": self.effort},
                 betas=["server-side-fallback-2026-07-01"],
                 fallbacks="default",
             ) as stream:
@@ -78,7 +90,7 @@ class AnthropicProvider:
         if message.stop_reason == "refusal":
             raise LLMError("모델이 이 요청 처리를 거절했습니다. 녹취록은 저장되어 있습니다.")
         # max_tokens 로 잘린 JSON 은 minutes.py 의 검증에서 실패 → 제한적으로 재시도
-        text = "".join(block.text for block in message.content if block.type == "text")
+        text = extract_json("".join(block.text for block in message.content if block.type == "text"))
         return LLMResult(text=text, model=message.model or self.model,
                          input_tokens=message.usage.input_tokens or 0,
                          output_tokens=message.usage.output_tokens or 0)
