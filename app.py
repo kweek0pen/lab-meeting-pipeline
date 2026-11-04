@@ -273,7 +273,15 @@ with tab_settings:
             summary_model = st.text_input("SUMMARY_MODEL (비우면 기본 모델)", value="")
             stt_model = st.text_input("TRANSCRIPTION_MODEL", value=settings.transcription_model)
             retention = st.number_input("RETENTION_DAYS (0 = 무기한 보존)", min_value=0, value=settings.retention_days)
-        if st.form_submit_button("저장", type="primary"):
+        submitted = st.form_submit_button("저장", type="primary")
+        if submitted and openai_key.strip().startswith("sk-ant-"):
+            st.error("OPENAI_API_KEY 칸에 Anthropic(Claude) 키(sk-ant-…)를 넣었습니다. OpenAI 키는 "
+                     "platform.openai.com 에서 발급하며 보통 sk-proj- 로 시작합니다.")
+            submitted = False
+        if submitted and anthropic_key.strip() and not anthropic_key.strip().startswith("sk-ant-"):
+            st.error("ANTHROPIC_API_KEY 는 sk-ant- 로 시작해야 합니다. OpenAI 키를 넣지 않았는지 확인하세요.")
+            submitted = False
+        if submitted:
             update_env({
                 "OPENAI_API_KEY": openai_key, "ANTHROPIC_API_KEY": anthropic_key, "NOTION_API_KEY": notion_key,
                 "NOTION_MEETING_DATABASE_ID": meeting_db, "NOTION_AI_NOTES_DATABASE_ID": ai_db,
