@@ -20,8 +20,6 @@ macOS와 Windows에서 동작합니다.
 | Anthropic API 키 | https://platform.claude.com/settings/keys | **회의록 생성**에 사용 (OpenAI 하나로만 쓰고 싶으면 생략 가능, 아래 참고) |
 | Notion Integration 토큰 | https://www.notion.so/profile/integrations | 워크스페이스 관리자 승인이 필요할 수 있음 (4장) |
 
-> ⚠️ **ChatGPT Plus·Claude Pro 구독과 API 요금은 별개입니다.** 구독 중이어도 API 를 쓰려면 각 콘솔의 **Billing** 메뉴에서 결제 수단을 등록하고 소액 크레딧(예: $5~10)을 충전해야 합니다. 충전하지 않으면 "크레딧이 없습니다" 오류가 납니다.
-
 **OpenAI 키 하나만 쓰기**: 설정에서 `SUMMARY_PROVIDER` 를 `openai` 로 바꾸면 회의록도 OpenAI 로 만듭니다(Anthropic 키 불필요). 기본값은 Claude(`claude-opus-5-5`) 입니다. 맥락이 흩어진 발언을 재구성하는 작업이라 기본값을 Claude 로 두었습니다.
 
 ### 예상 비용 (1시간 회의 기준, 2026-10-28 가격)
