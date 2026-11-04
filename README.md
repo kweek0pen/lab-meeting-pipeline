@@ -36,21 +36,35 @@ macOS와 Windows에서 동작합니다.
 
 ## 2. 설치 및 실행
 
-### 내려받기
-GitHub 페이지에서 **Code → Download ZIP** → 압축 풀기. (원하는 위치에 폴더째 두면 됩니다. 예: `문서/lab-meeting-pipeline`)
+### macOS (권장: 설치 명령 한 줄)
+브라우저로 받은 ZIP 의 `start-mac.command` 는 macOS 가 "신뢰할 수 없는 개발자" 라며 막습니다. 아래 방법은 그런 경고 없이 설치됩니다.
 
-### macOS
-1. 폴더 안의 **`start-mac.command`** 를 더블클릭합니다.
-2. "확인되지 않은 개발자" 경고가 뜨면: **시스템 설정 → 개인정보 보호 및 보안** 맨 아래의 **"그래도 열기"** 를 누른 뒤 다시 더블클릭합니다. (처음 한 번만)
-3. 처음 실행 때는 필요한 도구(uv, Python, 라이브러리)를 자동으로 설치하느라 2~5분 걸립니다.
-4. 브라우저에 `http://localhost:8501` 화면이 열립니다.
+1. **터미널** 앱을 엽니다 (Spotlight `⌘ + Space` → "터미널").
+2. 아래 한 줄을 붙여 넣고 Enter:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/kweek0pen/lab-meeting-pipeline/main/install-mac.sh | bash
+   ```
+3. 홈 폴더의 `lab-meeting-pipeline` 에 설치되고, **바탕화면에 '회의록 자동화' 앱**이 생기며 바로 실행됩니다. 다음부터는 이 앱을 더블클릭하면 됩니다.
+4. 처음 실행 때는 필요한 도구(uv, Python, 라이브러리)를 자동으로 설치하느라 2~5분 걸립니다. 끝나면 브라우저에 `http://localhost:8501` 화면이 열립니다.
 5. 첫 녹음 때 "터미널이 마이크에 접근하려고 합니다" 창이 뜨면 **허용**을 누릅니다. (실수로 거부했다면: 시스템 설정 → 개인정보 보호 및 보안 → 마이크 → 터미널 켜기)
 
+같은 명령을 다시 실행하면 **최신 버전으로 업데이트**되며, 설정(.env)과 녹음·회의록은 그대로 남습니다.
+
+<details><summary>이미 ZIP 으로 받아서 "열 수 없음" 이 뜬 경우</summary>
+
+터미널에서 아래를 실행한 뒤(폴더 위치에 맞게 경로 수정) `start-mac.command` 를 다시 더블클릭합니다.
+```bash
+xattr -dr com.apple.quarantine ~/Downloads/lab-meeting-pipeline-main
+```
+또는: 더블클릭해서 경고가 뜬 직후 **시스템 설정 → 개인정보 보호 및 보안** 맨 아래의 **"그래도 열기"** 를 누릅니다.
+</details>
+
 ### Windows
-1. 폴더 안의 **`start-windows.bat`** 를 더블클릭합니다.
-2. "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**을 누릅니다. (처음 한 번만)
-3. 처음 실행은 2~5분 걸립니다. 브라우저에 화면이 열립니다.
-4. 마이크가 잡히지 않으면: **설정 → 개인 정보 및 보안 → 마이크 → "데스크톱 앱이 마이크에 액세스하도록 허용"** 을 켭니다.
+1. GitHub 페이지에서 **Code → Download ZIP** → 압축 풀기(오른쪽 클릭 → **모두 압축 풀기**). 압축을 풀지 않은 채 ZIP 안에서 바로 실행하면 동작하지 않습니다.
+2. 폴더 안의 **`start-windows.bat`** 를 더블클릭합니다.
+3. "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**을 누릅니다. (처음 한 번만)
+4. 처음 실행은 필요한 파일을 내려받느라 2~5분 걸립니다(검은 창에 진행 상황이 표시됨). 끝나면 `✅ 준비 완료` 가 뜨고 브라우저가 열립니다. 브라우저가 안 열리면 `http://localhost:8501` 을 주소창에 직접 입력하세요.
+5. 마이크가 잡히지 않으면: **설정 → 개인 정보 및 보안 → 마이크 → "데스크톱 앱이 마이크에 액세스하도록 허용"** 을 켭니다.
 
 > 검은 창(터미널/명령 프롬프트)이 프로그램 본체입니다. **회의 중에는 닫지 마세요.** 브라우저 탭은 닫아도 녹음이 계속되며, `http://localhost:8501` 로 다시 열 수 있습니다.
 
@@ -171,8 +185,9 @@ AI 출력 뒤에 **코드가 한 번 더 검사**합니다: 지명 발언이 녹
 
 ```
 lab-meeting-pipeline/
+├─ install-mac.sh                          macOS 설치·업데이트
 ├─ start-mac.command / start-windows.bat   더블클릭 실행
-├─ app.py                                  화면 (Streamlit)
+├─ app.py / launch.py                      화면 (Streamlit) / 실행기
 ├─ labmeeting/                             프로그램 코드
 │   ├─ recorder.py        녹음 (크래시 안전)        ├─ transcription.py  전사·분할·중복 제거
 │   ├─ schema.py          회의록 JSON 스키마        ├─ minutes.py        회의록 생성·검증·렌더링
@@ -220,7 +235,7 @@ lab-meeting-pipeline/
 uv run --group dev pytest
 ```
 
-현재 결과: **55 passed, 1 skipped** (macOS, Python 3.12). 외부 API 는 모두 가짜(mock)로 대체해 API 키 없이 실행됩니다.
+현재 결과: **57 passed, 1 skipped** (macOS, Python 3.12). 외부 API 는 모두 가짜(mock)로 대체해 API 키 없이 실행됩니다.
 
 | 요구 테스트 | 파일 |
 |---|---|

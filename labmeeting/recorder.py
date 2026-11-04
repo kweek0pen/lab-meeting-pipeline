@@ -28,6 +28,7 @@ log = logging.getLogger("labmeeting.recorder")
 
 SEGMENT_SECONDS = 300
 FLUSH_INTERVAL = 2.0
+STREAM_CLOSE_TIMEOUT = 3.0
 PCM_INFO = "recording_info.json"
 FINAL_NAME = "recording.flac"
 
@@ -138,6 +139,12 @@ class Recorder:
         log.info("녹음 시작: %s (samplerate=%s)", self.out_dir.name, self.samplerate)
 
     def _callback(self, indata, frames, time_info, status) -> None:
+        if self._stopped_at is not None:
+            # 오디오 스레드 안에서 스스로 멈추게 한다. 다른 스레드에서 stream.stop() 을 부르면
+            # macOS CoreAudio 에서 영원히 멈추는 경우가 있었다 (AudioOutputUnitStop 교착).
+            import sounddevice as sd
+
+            raise sd.CallbackStop
         if status:
             log.warning("오디오 상태: %s", status)
         data = np.asarray(indata, dtype=np.int16).reshape(-1)
@@ -194,21 +201,35 @@ class Recorder:
     def stop(self, finalize: bool = True) -> Path | None:
         """녹음을 멈춘다. finalize=True 면 FLAC 으로 합친 최종 파일 경로를 돌려준다
         (앱에서는 False 로 멈추고, 합치기는 처리 파이프라인의 'Saving audio' 단계가 맡는다)."""
-        self._stopped_at = time.time()
-        try:
-            if self._stream is not None:
-                self._stream.stop()
-                self._stream.close()
-        except Exception as e:
-            log.warning("스트림 종료 중 오류(무시): %s", e)
-        finally:
-            if self.keep_awake:
-                self.keep_awake.stop()
+        self._stopped_at = time.time()  # 이후 오는 오디오 콜백은 CallbackStop 으로 스트림을 끝낸다
+        if self._stream is not None:
+            # 장치 종료는 별도 스레드에서, 기다리는 시간에 한도를 둔다.
+            # 운영체제 오디오 장치가 응답하지 않아도 화면이 멈추거나 처리가 시작되지 않는 일이 없게 한다.
+            stream = self._stream
+            closer = threading.Thread(target=self._close_stream, args=(stream,), name="recorder-close", daemon=True)
+            closer.start()
+            closer.join(timeout=STREAM_CLOSE_TIMEOUT)
+            if closer.is_alive():
+                log.warning("오디오 장치 종료가 %s초 넘게 지연됨 — 녹음 데이터는 이미 저장되어 계속 진행", STREAM_CLOSE_TIMEOUT)
+        if self.keep_awake:
+            self.keep_awake.stop()
         self._queue.put(None)
         if self._writer:
             self._writer.join(timeout=30)
         log.info("녹음 종료: %.1f초", self.elapsed)
         return finalize_recording(self.out_dir) if finalize else None
+
+
+    @staticmethod
+    def _close_stream(stream) -> None:
+        try:
+            deadline = time.time() + 1.0  # 콜백이 CallbackStop 으로 스스로 멈출 시간을 잠깐 준다
+            while getattr(stream, "active", False) and time.time() < deadline:
+                time.sleep(0.05)
+            stream.abort()  # stop() 과 달리 남은 버퍼를 기다리지 않음
+            stream.close()
+        except Exception as e:
+            log.warning("스트림 종료 중 오류(무시): %s", e)
 
 
 def has_unfinalized_pcm(meeting_dir: Path) -> bool:
@@ -227,7 +248,9 @@ def finalize_recording(meeting_dir: Path) -> Path:
     info = json.loads((meeting_dir / PCM_INFO).read_text(encoding="utf-8"))
     sr = int(info["samplerate"])
     total_frames = sum(p.stat().st_size // 2 for p in segments)
-    tmp = meeting_dir / (FINAL_NAME + ".partial")
+    if total_frames == 0:
+        raise RecorderError("녹음된 소리가 없습니다. 마이크 연결과 권한을 확인하세요.")
+    tmp =meeting_dir / (FINAL_NAME + ".partial")
     with sf.SoundFile(tmp, mode="w", samplerate=sr, channels=1, subtype="PCM_16", format="FLAC") as out:
         for seg in segments:
             raw = seg.read_bytes()

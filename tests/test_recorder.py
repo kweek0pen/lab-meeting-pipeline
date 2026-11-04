@@ -3,6 +3,7 @@ import time
 
 import numpy as np
 import pytest
+import sounddevice as sd
 import soundfile as sf
 
 from labmeeting.recorder import Recorder, RecorderError, finalize_recording, has_unfinalized_pcm
@@ -16,6 +17,7 @@ class FakeStream:
         self.block = blocksize
         self._stop = threading.Event()
         self.sent = 0
+        self.active = False
 
     def start(self):
         def run():
@@ -23,11 +25,16 @@ class FakeStream:
             while not self._stop.is_set():
                 t = (np.arange(self.block) + t0) / self.sr
                 data = (np.sin(2 * np.pi * 440 * t) * 8000).astype(np.int16).reshape(-1, 1)
-                self.cb(data, self.block, None, None)
+                try:
+                    self.cb(data, self.block, None, None)
+                except sd.CallbackStop:  # 실제 PortAudio 처럼: 이 블록은 버리고 스트림 종료
+                    break
                 self.sent += self.block
                 t0 += self.block
                 time.sleep(0.002)
+            self.active = False
 
+        self.active = True
         self._thread = threading.Thread(target=run, daemon=True)
         self._thread.start()
 
@@ -35,8 +42,17 @@ class FakeStream:
         self._stop.set()
         self._thread.join()
 
+    abort = stop
+
     def close(self):
         pass
+
+
+class HangingStream(FakeStream):
+    """macOS 에서 실제로 겪은 상황: 장치 종료 호출이 영원히 돌아오지 않음."""
+
+    def abort(self):
+        threading.Event().wait()
 
 
 # 12. 녹음 파일이 정상적으로 저장됨
@@ -87,6 +103,37 @@ def test_microphone_open_failure_message(tmp_path):
 def test_device_disconnect_sets_error(tmp_path):
     rec = Recorder(tmp_path / "m4", stream_factory=lambda **kw: FakeStream(**kw), keep_awake=False)
     rec.start()
+    time.sleep(0.2)
     rec._on_finished()  # 장치 분리 시 sounddevice 가 호출
     assert rec.error and "저장되어 있습니다" in rec.error
-    rec.stop()
+    assert rec.stop().exists()
+
+
+def test_stop_immediately_without_audio(tmp_path):
+    class SilentStream(FakeStream):  # 콜백이 한 번도 오지 않음 (권한 거부 등)
+        def start(self):
+            pass
+
+        def abort(self):
+            pass
+
+    rec = Recorder(tmp_path / "m6", stream_factory=lambda **kw: SilentStream(**kw), keep_awake=False)
+    rec.start()
+    with pytest.raises(RecorderError, match="소리가 없습니다"):
+        rec.stop()
+
+
+def test_stop_does_not_hang_when_device_close_hangs(tmp_path):
+    streams = []
+
+    def factory(**kw):
+        streams.append(HangingStream(**kw))
+        return streams[0]
+
+    rec = Recorder(tmp_path / "m5", stream_factory=factory, keep_awake=False)
+    rec.start()
+    time.sleep(0.3)
+    t0 = time.time()
+    path = rec.stop()
+    assert time.time() - t0 < 6  # 화면이 멈추지 않음
+    assert sf.info(str(path)).frames == streams[0].sent  # 녹음은 빠짐없이 저장

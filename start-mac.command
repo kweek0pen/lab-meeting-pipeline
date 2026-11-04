@@ -11,8 +11,6 @@ fi
 
 [ -f .env ] || cp .env.example .env
 
-echo "▶ 프로그램을 시작합니다. 잠시 후 브라우저가 열립니다."
-echo "  (이 창을 닫으면 프로그램과 녹음이 종료됩니다. 회의 중에는 닫지 마세요.)"
-uv run --quiet streamlit run app.py --server.address 127.0.0.1 --server.port 8501 \
-  --browser.gatherUsageStats false --server.headless false
+echo "▶ 프로그램을 준비합니다. 처음 실행은 필요한 파일을 내려받느라 2~5분 걸릴 수 있습니다."
+uv run python launch.py
 read -r -p "프로그램이 종료되었습니다. Enter 를 누르면 창이 닫힙니다."

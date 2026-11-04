@@ -1,7 +1,9 @@
 @echo off
 rem Double-click to run (Windows). First run installs required tools (a few minutes).
+chcp 65001 >nul
 cd /d "%~dp0"
 set "PATH=%USERPROFILE%\.local\bin;%PATH%"
+set "PYTHONUTF8=1"
 
 where uv >nul 2>nul
 if errorlevel 1 (
@@ -16,7 +18,6 @@ if errorlevel 1 (
 
 if not exist ".env" copy ".env.example" ".env" >nul
 
-echo Starting... a browser window will open shortly.
-echo (Closing this window stops the program and any recording. Keep it open during meetings.)
-uv run --quiet streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --browser.gatherUsageStats false --server.headless false
+echo Preparing... The first run downloads required files and can take 2-5 minutes.
+uv run python launch.py
 pause
