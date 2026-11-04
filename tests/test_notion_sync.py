@@ -150,3 +150,22 @@ def test_trashed_page_is_recreated(settings, store, notion_client, fake_notion):
     store.update(mid, relation_linked=False)
     meta2 = _sync(notion_client, settings, store, mid)
     assert meta2["ai_notes_page_id"] != meta["ai_notes_page_id"]
+
+
+def test_replace_page_content_after_regeneration(settings, store, notion_client, fake_notion):
+    from labmeeting.notion_sync import replace_meeting_pages
+
+    mid = _meeting(store)["meeting_id"]
+    meta = _sync(notion_client, settings, store, mid)
+    new_notes = normalize(sample_notes(outline=[{"title": "새 안건", "items": [
+        {"text": "새 요약 한 줄", "todo": False, "children": []}]}]), TRANSCRIPT, MEETING_DATE)
+    replace_meeting_pages(notion_client, store, mid, new_notes, TRANSCRIPT, {})
+
+    def texts(page_id):
+        return [t["plain_text"] for b in fake_notion.children[page_id] for t in b[b["type"]].get("rich_text", [])]
+
+    for page_id in (meta["meeting_page_id"], meta["ai_notes_page_id"]):
+        t = texts(page_id)
+        assert "새 안건" in t and "실험 계획" not in t  # 이전 본문은 사라지고 새 본문만
+        assert sum(mid in x for x in t) == 1  # 중복 방지 표식은 하나만
+    assert len(fake_notion.pages_in(MEETING_DS)) == 1 and len(fake_notion.pages_in(AI_DS)) == 1

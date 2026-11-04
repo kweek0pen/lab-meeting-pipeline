@@ -97,10 +97,29 @@ def test_invalid_json_gives_up_and_preserves_raw(tmp_path):
     assert all(p.exists() for p in exc.value.raw_paths)
 
 
-def test_render_sections_present():
+def test_removed_assignee_scrubbed_from_outline():
+    notes = normalize(sample_notes(action_items=[_action(assignees=["민수"], assignee_evidence="해야 할 것 같습니다")]),
+                      TRANSCRIPT, MEETING_DATE)
+    todo = notes["outline"][0]["items"][0]["children"][1]
+    assert todo["text"] == "실험 계획 수정"
+
+
+def test_render_concise_layout():
     notes = normalize(sample_notes(), TRANSCRIPT, MEETING_DATE)
-    md = blocks_to_markdown(minutes_blocks(notes))
-    for heading in ["핵심 요약", "주요 주제와 맥락", "추론 과정 재구성", "확정된 결정", "제안 및 검토한 대안",
-                    "방향 전환", "확정된 Action Items", "잠정 업무 및 확인 필요", "미결 사항", "관련 녹취 발췌"]:
-        assert heading in md
-    assert "담당: 민수" in md and "기한: 2026-11-06" in md
+    blocks = minutes_blocks(notes)
+    assert blocks[0]["type"] == "callout" and blocks[0]["text"] == "TO-DOs"
+    assert blocks[0]["children"][0]["text"] == "민수"
+    assert blocks[0]["children"][0]["children"][0]["text"] == "실험 계획 수정 ~11/6"
+    assert blocks[1] == {"type": "h3", "text": "실험 계획"}
+    assert blocks[-1]["type"] == "toggle"  # 근거는 접어 둠
+    md = blocks_to_markdown(blocks)
+    assert "- [ ] 실험 계획 수정 (민수)" in md and "> ≈00:00:30" not in md.split("근거 보기")[0]
+
+
+def test_unassigned_todos_grouped_and_tentative_left_out():
+    unassigned = _action(assignees=[], assignee_evidence="", due_date="", due_date_text="")
+    tentative = _action(task="아이디어 수준 작업", commitment="tentative")
+    notes = normalize(sample_notes(action_items=[unassigned, tentative]), TRANSCRIPT, MEETING_DATE)
+    callout = minutes_blocks(notes)[0]
+    assert [c["text"] for c in callout["children"]] == ["담당 미정"]  # 잠정 업무는 맨 위에서 제외
+    assert callout["children"][0]["children"][0]["text"] == "실험 계획 수정"

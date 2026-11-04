@@ -67,26 +67,22 @@ def sample_notes(**overrides) -> dict:
     """LLM 이 돌려줄 법한 회의록 JSON (스키마 준수)."""
     ev = lambda q, ts="≈00:00:10": {"quote": q, "is_paraphrase": False, "timestamp": ts}  # noqa: E731
     action = {
-        "task_id": "x", "task": "실험 계획 수정", "purpose": "다음 실험 준비", "topic_id": "T1",
+        "task_id": "x", "task": "실험 계획 수정",
         "assignees": ["민수 씨"], "assignee_evidence": "민수 씨가 다음 주 금요일까지 실험 계획을 수정해 주세요.",
         "due_date": "2026-11-06", "due_date_text": "다음 주 금요일까지", "status": "open", "commitment": "confirmed",
         "basis": "explicit", "evidence": [ev("민수 씨가 다음 주 금요일까지 실험 계획을 수정해 주세요.")],
-        "context": "", "confidence": 0.9, "needs_confirmation": False, "interpretation_notes": "",
+        "confidence": 0.9, "needs_confirmation": False, "note": "",
     }
     notes = {
         "meeting_title": "261028(수) 회의", "meeting_date": "2026-10-28",
-        "overview": "실험 계획과 분석 도구를 논의.", "executive_summary": ["실험 계획 수정 필요", "분석은 Python"],
-        "topics": [{"topic_id": "T1", "title": "실험 계획", "context": "다음 실험 준비", "initial_question": "",
-                    "hypotheses": [], "alternatives": [{"option": "R 사용", "arguments_for": [], "objections": ["유지보수"],
-                                                       "state": "rejected", "evidence": []}],
-                    "final_position": "Python 사용", "final_state": "confirmed", "remaining_uncertainties": [],
-                    "evidence": [ev("데이터 분석은 R 말고 Python 으로 하는 걸로 하죠.", "≈00:00:30")]}],
-        "reconstructed_reasoning": [{"topic_id": "T1", "narrative": "R 대신 Python 으로 정리됨."}],
-        "decisions": [{"decision_id": "x", "topic_id": "T1", "statement": "분석은 Python", "state": "confirmed",
-                       "basis": "explicit", "rationale": "", "interpretation_notes": "",
-                       "evidence": [ev("데이터 분석은 R 말고 Python 으로 하는 걸로 하죠.", "≈00:00:30")]}],
-        "revisions": [], "action_items": [action], "needs_clarification": [], "unresolved_questions": [],
-        "follow_up_questions": [], "reference_resolutions": [], "key_excerpts": [], "quality_checks": [],
+        "outline": [{"title": "실험 계획", "items": [
+            {"text": "기본 정보", "todo": False, "children": [
+                {"text": "다음 실험 준비 단계", "todo": False, "children": []},
+                {"text": "실험 계획 수정 (민수)", "todo": True, "children": []}]},
+            {"text": "분석은 R 대신 Python", "todo": False, "children": []}]}],
+        "decisions": [{"decision_id": "x", "statement": "분석은 Python", "state": "confirmed", "basis": "explicit",
+                       "note": "", "evidence": [ev("데이터 분석은 R 말고 Python 으로 하는 걸로 하죠.", "≈00:00:30")]}],
+        "action_items": [action], "needs_clarification": [],
     }
     notes.update(overrides)
     return notes

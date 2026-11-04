@@ -132,6 +132,13 @@ class FakeNotion:
                         page["properties"][name]["relation"] = val["relation"]
                         self._sync_dual(page, name, val["relation"])
             return self._resp(200, page)
+        if (m := re.fullmatch(r"/blocks/([\w-]+)", path)) and method == "DELETE":
+            for blocks in self.children.values():
+                for b in blocks:
+                    if b["id"] == m[1]:
+                        blocks.remove(b)
+                        return self._resp(200, b | {"in_trash": True})
+            return self._err(404, "object_not_found")
         if m := re.fullmatch(r"/blocks/([\w-]+)/children", path):
             if m[1] not in self.children:
                 return self._err(404, "object_not_found")

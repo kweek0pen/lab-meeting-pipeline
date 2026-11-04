@@ -136,3 +136,17 @@ class NotionClient:
 
     def list_children(self, block_id: str, page_size: int = 100) -> dict:
         return self.request("GET", f"/blocks/{block_id}/children", params={"page_size": page_size})
+
+    def list_all_children(self, block_id: str) -> list[dict]:
+        blocks, cursor = [], None
+        while True:
+            params = {"page_size": 100} | ({"start_cursor": cursor} if cursor else {})
+            res = self.request("GET", f"/blocks/{block_id}/children", params=params)
+            blocks += res.get("results", [])
+            if not res.get("has_more"):
+                return blocks
+            cursor = res.get("next_cursor")
+
+    def delete_block(self, block_id: str) -> dict:
+        """블록을 휴지통으로 옮긴다 (Notion 페이지 기록에서 복원 가능)."""
+        return self.request("DELETE", f"/blocks/{block_id}")

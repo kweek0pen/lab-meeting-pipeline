@@ -6,7 +6,9 @@
    - 날짜 형식이 아니거나, 원래 기한 표현이 녹취록에 없거나, 회의일 이전인 기한은 제거(미정)
    - 근거가 없거나 '해석 불확실'인 확정 업무/결정은 잠정·미결로 낮춤
    - 각 인용문이 녹취록에 실제로 있는지 표시(found_in_transcript)
+   - 담당자를 지운 경우 개조식 본문의 "(이름)" 표기도 함께 지움
 3) 화면/Notion/Markdown 에 공통으로 쓰는 문서 구조(blocks)로 변환.
+   본문은 사람이 쓴 회의록처럼 짧게: TO-DO 요약 → 안건별 개조식 → 확인 필요 → (접힌) 근거.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from pydantic import ValidationError
 
 from .costs import add_llm_costs, llm_cost
 from .llm import LLMError, LLMProvider
-from .schema import BASIS_KO, DECISION_STATE_KO, REVISION_KO, MeetingNotes
+from .schema import BASIS_KO, DECISION_STATE_KO, MeetingNotes
 from .settings import PROMPTS_DIR
 from .storage import atomic_write_text
 from .titles import calendar_hint, weekday_ko
@@ -146,11 +148,10 @@ def normalize(notes: dict, transcript: str, meeting_date: dt.date) -> dict:
     squashed = _squash(body)
 
     # 모든 evidence 에 원문 일치 여부 표시
-    for section in ("topics", "decisions", "revisions", "action_items", "needs_clarification"):
+    for section in ("decisions", "action_items"):
         for item in notes.get(section, []):
             _mark_evidence(item.get("evidence", []), squashed)
-            for alt in item.get("alternatives", []) or []:
-                _mark_evidence(alt.get("evidence", []), squashed)
+    removed_names: set[str] = set()
 
     for i, item in enumerate(notes.get("action_items", []), start=1):
         item["task_id"] = f"A{i}"
@@ -166,6 +167,7 @@ def normalize(notes: dict, transcript: str, meeting_date: dt.date) -> dict:
                 kept.append(core)
             else:
                 _note(item, f"담당자 '{name}': 녹취록에서 명시적 지명 근거를 찾지 못해 미정으로 처리")
+                removed_names.update({name.strip(), core})
         item["assignees"] = kept
         item["assignee"] = ", ".join(kept) if kept else None
         if not kept:
@@ -204,14 +206,70 @@ def normalize(notes: dict, transcript: str, meeting_date: dt.date) -> dict:
             d["state"] = "unresolved"
             _note(d, "근거 발언이 없거나 해석이 불확실하여 '미결'로 분류")
 
+    # 근거 없이 지운 담당자가 개조식 본문에 "(이름)"으로 남아 있으면 함께 지움
+    def scrub(items):
+        for it in items:
+            for name in removed_names:
+                if name:
+                    it["text"] = re.sub(rf"\s*\(\s*{re.escape(name)}\s*\)", "", it["text"])
+            scrub(it.get("children") or [])
+
+    for sec in notes.get("outline", []):
+        scrub(sec.get("items") or [])
+
     notes["generated_at"] = dt.datetime.now().astimezone().isoformat(timespec="seconds")
     return _empty_to_none(notes)
 
 
 # ---------------------------------------------------------------- 렌더링 (공통 블록)
-# 블록: {"type": "h1|h2|h3|p|bullet|todo|quote|divider|callout", "text": str, "checked": bool, "children": [...]}
+# 블록: {"type": "h2|h3|p|bullet|todo|quote|toggle|divider|callout", "text": str, "checked": bool, "children": [...]}
 def _b(type_: str, text: str = "", **kw) -> dict:
     return {"type": type_, "text": text, **kw}
+
+
+def _short_date(iso: str) -> str:
+    d = dt.date.fromisoformat(iso)
+    return f"{d.month}/{d.day}"
+
+
+def _todo_line(a: dict) -> str:
+    text = a["task"]
+    if a.get("due_date"):
+        text += f" ~{_short_date(a['due_date'])}"
+    elif a.get("due_date_text"):
+        text += f" ({a['due_date_text']})"
+    if a.get("commitment") != "confirmed":
+        text += " (잠정)"
+    if a.get("needs_confirmation"):
+        text += " (확인 필요)"
+    return text
+
+
+def todo_callout(notes: dict) -> dict:
+    """맨 위 TO-DOs: 확정된 할 일만, 명시적으로 지명된 사람별 → 담당 미정 순.
+    잠정(아이디어 수준) 할 일은 본문 맥락 아래 체크박스로만 남겨 맨 위를 짧게 유지한다."""
+    groups: dict[str, list[dict]] = {}
+    for a in notes.get("action_items") or []:
+        if a.get("status") == "done" or a.get("commitment") != "confirmed":
+            continue
+        for person in a.get("assignees") or ["담당 미정"]:
+            groups.setdefault(person, []).append(a)
+    order = [p for p in groups if p != "담당 미정"] + (["담당 미정"] if "담당 미정" in groups else [])
+    children = [_b("bullet", person, children=[_b("todo", _todo_line(a)) for a in groups[person]]) for person in order]
+    return _b("callout", "TO-DOs", emoji="✅", children=children or [_b("p", "정해진 할 일 없음")])
+
+
+def _outline_item(item: dict) -> dict:
+    return _b("todo" if item.get("todo") else "bullet", item["text"],
+              children=[_outline_item(c) for c in item.get("children") or []])
+
+
+def outline_blocks(notes: dict) -> list[dict]:
+    blocks = []
+    for sec in notes.get("outline") or []:
+        blocks.append(_b("h3", sec["title"]))
+        blocks += [_outline_item(i) for i in sec.get("items") or []]
+    return blocks
 
 
 def _ev_blocks(evidence: list[dict] | None) -> list[dict]:
@@ -224,155 +282,33 @@ def _ev_blocks(evidence: list[dict] | None) -> list[dict]:
     return out
 
 
-def _notes_text(item: dict) -> str:
-    parts = []
-    if item.get("interpretation_notes"):
-        parts.append(f"해석 메모: {item['interpretation_notes']}")
-    parts += [f"자동 검증: {n}" for n in item.get("validation_notes") or []]
-    return " / ".join(parts)
+def _check_notes(item: dict) -> list[dict]:
+    notes = ([item["note"]] if item.get("note") else []) + [f"자동 검증: {n}" for n in item.get("validation_notes") or []]
+    return [_b("p", " / ".join(notes), color="gray")] if notes else []
 
 
-def _action_blocks(item: dict) -> dict:
-    who = item.get("assignee") or "미정"
-    due = item.get("due_date") or "미정"
-    if not item.get("due_date") and item.get("due_date_text"):
-        due += f" (언급: '{item['due_date_text']}')"
-    flags = []
-    if item.get("needs_confirmation"):
-        flags.append("확인 필요")
-    flags.append(BASIS_KO.get(item.get("basis"), ""))
-    text = f"[{item['task_id']}] {item['task']} — 담당: {who} · 기한: {due} · {' · '.join(f for f in flags if f)}"
+def evidence_toggle(notes: dict) -> dict:
     children = []
-    if item.get("purpose"):
-        children.append(_b("p", f"목적: {item['purpose']}"))
-    if item.get("context"):
-        children.append(_b("p", f"맥락: {item['context']}"))
-    if item.get("assignee_evidence"):
-        children.append(_b("p", f"담당자 지명 발언: {item['assignee_evidence']}"))
-    children += _ev_blocks(item.get("evidence"))
-    if item.get("confidence") is not None:
-        children.append(_b("p", f"신뢰도(모델 추정치, 검증된 확률 아님): {item['confidence']:.2f}"))
-    if _notes_text(item):
-        children.append(_b("p", _notes_text(item)))
-    return _b("todo", text, checked=item.get("status") == "done", children=children)
+    for d in notes.get("decisions") or []:
+        state = DECISION_STATE_KO.get(d["state"], d["state"])
+        children.append(_b("bullet", f"[결정·{state}] {d['statement']} ({BASIS_KO.get(d.get('basis'), '')})",
+                           children=_ev_blocks(d.get("evidence")) + _check_notes(d)))
+    for a in notes.get("action_items") or []:
+        who = a.get("assignee") or "미정"
+        children.append(_b("bullet", f"[할 일] {_todo_line(a)} — 담당 {who} ({BASIS_KO.get(a.get('basis'), '')})",
+                           children=_ev_blocks(a.get("evidence")) + _check_notes(a)))
+    return _b("toggle", "근거 보기 — 결정·할 일의 원문 발언과 자동 검증 결과",
+              children=children or [_b("p", "없음")])
 
 
 def minutes_blocks(notes: dict) -> list[dict]:
-    topics = {t["topic_id"]: t for t in notes.get("topics") or []}
-
-    def topic_name(tid):
-        return topics.get(tid, {}).get("title") or tid or "-"
-
-    blocks: list[dict] = []
-    blocks.append(_b("h2", "회의 개요"))
-    blocks.append(_b("p", notes.get("overview") or "-"))
-
-    blocks.append(_b("h2", "1. 핵심 요약 (Executive Summary)"))
-    blocks += [_b("bullet", s) for s in notes.get("executive_summary") or []]
-
-    blocks.append(_b("h2", "2. 주요 주제와 맥락"))
-    for t in notes.get("topics") or []:
-        blocks.append(_b("h3", f"{t['topic_id']}. {t['title']}"))
-        if t.get("context"):
-            blocks.append(_b("p", f"맥락: {t['context']}"))
-        if t.get("initial_question"):
-            blocks.append(_b("p", f"처음 질문/문제: {t['initial_question']}"))
-        for h in t.get("hypotheses") or []:
-            blocks.append(_b("bullet", f"가설: {h}"))
-        if t.get("final_position"):
-            blocks.append(_b("p", f"최종 입장 [{DECISION_STATE_KO.get(t.get('final_state'), '')}]: {t['final_position']}"))
-        else:
-            blocks.append(_b("p", f"최종 입장: 확립되지 않음 [{DECISION_STATE_KO.get(t.get('final_state'), '')}]"))
-        for u in t.get("remaining_uncertainties") or []:
-            blocks.append(_b("bullet", f"남은 불확실성: {u}"))
-
-    blocks.append(_b("h2", "3. 추론 과정 재구성"))
-    blocks.append(_b("p", "※ 이해를 돕기 위해 재배열한 내용이며, 실제 발언 순서와 다를 수 있습니다."))
-    for r in notes.get("reconstructed_reasoning") or []:
-        blocks.append(_b("h3", topic_name(r.get("topic_id"))))
-        blocks.append(_b("p", r.get("narrative") or ""))
-
-    def decision_block(d):
-        text = (f"[{d['decision_id']}] [{DECISION_STATE_KO.get(d['state'], d['state'])}] {d['statement']} "
-                f"({topic_name(d.get('topic_id'))} · {BASIS_KO.get(d.get('basis'), '')})")
-        children = []
-        if d.get("rationale"):
-            children.append(_b("p", f"이유: {d['rationale']}"))
-        children += _ev_blocks(d.get("evidence"))
-        if _notes_text(d):
-            children.append(_b("p", _notes_text(d)))
-        return _b("bullet", text, children=children)
-
-    decisions = notes.get("decisions") or []
-    blocks.append(_b("h2", "4. 확정된 결정"))
-    confirmed = [d for d in decisions if d["state"] == "confirmed"]
-    blocks += [decision_block(d) for d in confirmed] or [_b("p", "확정된 결정 없음")]
-
-    blocks.append(_b("h2", "5. 제안 및 검토한 대안"))
-    others = [d for d in decisions if d["state"] in ("proposed", "under_consideration", "deferred", "rejected", "superseded")]
-    blocks += [decision_block(d) for d in others]
-    for t in notes.get("topics") or []:
-        for alt in t.get("alternatives") or []:
-            children = [_b("p", f"근거: {a}") for a in alt.get("arguments_for") or []]
-            children += [_b("p", f"반론/한계: {o}") for o in alt.get("objections") or []]
-            children += _ev_blocks(alt.get("evidence"))
-            blocks.append(_b("bullet", f"[{DECISION_STATE_KO.get(alt['state'], alt['state'])}] {alt['option']} ({t['title']})",
-                             children=children))
-    if len(blocks) and blocks[-1]["text"] == "5. 제안 및 검토한 대안":
-        blocks.append(_b("p", "없음"))
-
-    blocks.append(_b("h2", "6. 방향 전환 및 중요한 정정"))
-    revs = notes.get("revisions") or []
-    for rv in revs:
-        sup = "앞 입장을 대체함" if rv.get("supersedes_earlier") else "앞 입장을 대체한다고 단정할 수 없음"
-        children = [_b("p", f"이전: {rv['earlier_position']}"), _b("p", f"이후: {rv['later_position']}"),
-                    _b("p", f"설명: {rv.get('explanation') or '-'} ({sup})")] + _ev_blocks(rv.get("evidence"))
-        blocks.append(_b("bullet", f"[{REVISION_KO.get(rv['kind'], rv['kind'])}] {topic_name(rv.get('topic_id'))}",
-                         children=children))
-    if not revs:
-        blocks.append(_b("p", "감지된 방향 전환 없음"))
-
-    actions = notes.get("action_items") or []
-    blocks.append(_b("h2", "7. 확정된 Action Items"))
-    confirmed_actions = [a for a in actions if a["commitment"] == "confirmed"]
-    blocks += [_action_blocks(a) for a in confirmed_actions] or [_b("p", "확정된 Action Item 없음")]
-
-    blocks.append(_b("h2", "8. 잠정 업무 및 확인 필요"))
-    tentative = [a for a in actions if a["commitment"] != "confirmed"]
-    blocks += [_action_blocks(a) for a in tentative]
-    for c in notes.get("needs_clarification") or []:
-        children = [_b("p", f"불명확한 이유: {c.get('why_unclear') or '-'}")]
-        children += [_b("p", f"가능한 해석: {p}") for p in c.get("possible_interpretations") or []]
-        children += _ev_blocks(c.get("evidence"))
-        blocks.append(_b("bullet", f"확인 필요: {c['item']}", children=children))
-    if not tentative and not notes.get("needs_clarification"):
-        blocks.append(_b("p", "없음"))
-
-    blocks.append(_b("h2", "9. 미결 사항 및 추가 확인 질문"))
-    for q in notes.get("unresolved_questions") or []:
-        blocks.append(_b("bullet", f"미결: {q}"))
-    for d in decisions:
-        if d["state"] == "unresolved":
-            blocks.append(decision_block(d))
-    for q in notes.get("follow_up_questions") or []:
-        blocks.append(_b("bullet", f"확인 질문: {q}"))
-    refs = [r for r in notes.get("reference_resolutions") or [] if r.get("ambiguous")]
-    for r in refs:
-        ts = f"[{r['timestamp']}] " if r.get("timestamp") else ""
-        blocks.append(_b("bullet", f"모호한 지시 표현: {ts}'{r['expression']}' — {r.get('notes') or '대상 불명확'}"))
-
-    blocks.append(_b("h2", "10. 관련 녹취 발췌"))
-    for ex in notes.get("key_excerpts") or []:
-        ts = f"[{ex['timestamp']}] " if ex.get("timestamp") else ""
-        blocks.append(_b("quote", f"{ts}{ex['quote']}",
-                         children=[_b("p", f"{topic_name(ex.get('topic_id'))}: {ex.get('why_relevant') or ''}")]))
-
-    checks = notes.get("quality_checks") or []
-    if checks:
-        blocks.append(_b("h3", "AI 자체 품질 점검"))
-        for c in checks:
-            mark = "✅" if c.get("passed") else "⚠️"
-            blocks.append(_b("bullet", f"{mark} {c['check']}" + (f" — {c['notes']}" if c.get("notes") else "")))
+    """간결한 회의록 본문: TO-DOs → 안건별 개조식 → 확인 필요 → (접힌) 근거."""
+    blocks = [todo_callout(notes)] + outline_blocks(notes)
+    questions = notes.get("needs_clarification") or []
+    if questions:
+        blocks.append(_b("h3", "확인 필요"))
+        blocks += [_b("bullet", q) for q in questions]
+    blocks.append(evidence_toggle(notes))
     return blocks
 
 
@@ -412,6 +348,10 @@ def blocks_to_markdown(blocks: list[dict], depth: int = 0) -> str:
             out.append(f"{pad}- [{'x' if b.get('checked') else ' '}] {text}")
         elif t == "quote":
             out.append(f"{pad}> {text}")
+        elif t in ("toggle", "callout"):
+            out.append(f"\n**{text}**")
+            out.append(blocks_to_markdown(b.get("children") or [], depth))
+            continue
         elif t == "divider":
             out.append("---")
         else:

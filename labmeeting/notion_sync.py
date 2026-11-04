@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
-from .minutes import _action_blocks, _b, minutes_blocks, transcript_blocks
+from .minutes import _b, minutes_blocks, outline_blocks, todo_callout, transcript_blocks
 from .notion_client import NotionClient, NotionError, parse_notion_id, same_id
 from .titles import ai_notes_page_title
 
@@ -133,7 +133,8 @@ def rich_text(text: str, *, url: str | None = None, color: str | None = None) ->
 
 
 _TYPE_MAP = {"h1": "heading_1", "h2": "heading_2", "h3": "heading_3", "p": "paragraph",
-             "bullet": "bulleted_list_item", "todo": "to_do", "quote": "quote", "callout": "callout"}
+             "bullet": "bulleted_list_item", "todo": "to_do", "quote": "quote", "callout": "callout",
+             "toggle": "toggle"}
 
 
 def to_notion(block: dict, depth: int = 0) -> dict:
@@ -287,30 +288,41 @@ def _date_prop(value: str) -> dict:
     return {"date": {"start": value}}
 
 
+def replace_page_content(client: NotionClient, page_id: str, meeting_id: str, blocks: list[dict]) -> int:
+    """이미 만든 페이지의 본문을 새 회의록으로 교체 (회의록을 다시 만들었을 때).
+    기존 블록은 Notion 휴지통으로 가므로 페이지 '업데이트 기록'에서 되돌릴 수 있다. 붙인 블록 수를 돌려준다."""
+    for block in client.list_all_children(page_id):
+        client.delete_block(block["id"])
+    all_blocks = [marker_block(meeting_id)] + blocks
+    for i in range(0, len(all_blocks), BATCH):
+        client.append_children(page_id, [to_notion(b) for b in all_blocks[i:i + BATCH]])
+    return len(all_blocks)
+
+
+def replace_meeting_pages(client: NotionClient, store, meeting_id: str, notes: dict, transcript: str,
+                          transcript_info: dict) -> dict:
+    meta = store.load(meeting_id)
+    if not (meta.get("meeting_page_id") and meta.get("ai_notes_page_id")):
+        raise NotionError("교체할 Notion 페이지가 없습니다. 먼저 처리를 완료하세요.")
+    n1 = replace_page_content(client, meta["meeting_page_id"], meeting_id, meeting_page_blocks(meta, notes))
+    n2 = replace_page_content(client, meta["ai_notes_page_id"], meeting_id,
+                              ai_page_blocks(meta, notes, transcript, transcript_info))
+    return store.update(meeting_id, meeting_blocks_done=n1, ai_notes_blocks_done=n2)
+
+
 def meeting_page_blocks(meta: dict, notes: dict) -> list[dict]:
-    blocks = [_b("h2", "회의 정보"),
-              _b("bullet", f"회의 날짜: {meta['meeting_date']}"),
-              _b("bullet", f"참석자: {meta.get('attendees') or '-'}")]
+    """회의록 모음 DB 페이지: 사람이 쓴 회의록처럼 TO-DOs + 안건별 개조식만."""
+    blocks = [todo_callout(notes)] + outline_blocks(notes)
     url = (meta.get("related_page_url") or "").strip()
     if url:
-        blocks.append(_b("bullet", f"관련 페이지: {url}", url=url if url.startswith("http") else None))
-    blocks.append(_b("callout", "상세 회의록과 전체 녹취록은 Relation 으로 연결된 'AI 녹취+요약본' 페이지에 있습니다. "
-                                "AI 가 작성한 내용이므로 사실과 다를 수 있습니다.", emoji="🤖"))
-    blocks.append(_b("h2", "핵심 요약"))
-    blocks += [_b("bullet", s) for s in notes.get("executive_summary") or []]
-    blocks.append(_b("h2", "확정된 결정"))
-    confirmed = [d for d in notes.get("decisions") or [] if d["state"] == "confirmed"]
-    blocks += [_b("bullet", d["statement"]) for d in confirmed] or [_b("p", "없음")]
-    blocks.append(_b("h2", "Action Items"))
-    actions = [a for a in notes.get("action_items") or [] if a["commitment"] == "confirmed"]
-    blocks += [_action_blocks(a) | {"children": []} for a in actions] or [_b("p", "확정된 Action Item 없음")]
+        blocks.append(_b("p", f"관련 페이지: {url}", url=url if url.startswith("http") else None))
+    blocks.append(_b("p", "🤖 AI 작성 · 근거와 전체 녹취록은 연결된 'AI 녹취+요약본' 페이지에 있습니다.", color="gray"))
     return blocks
 
 
 def ai_page_blocks(meta: dict, notes: dict, transcript: str, transcript_info: dict) -> list[dict]:
-    blocks = [_b("callout", "AI 가 녹음을 전사·요약한 결과입니다. 원문 녹취록은 맨 아래에 그대로 있습니다. "
-                            "자유롭게 수정하세요.", emoji="🤖"),
-              _b("p", f"회의 날짜: {meta['meeting_date']} · 참석자: {meta.get('attendees') or '-'}")]
+    blocks = [_b("p", f"🤖 AI 정리본 · {meta['meeting_date']} · 참석자 {meta.get('attendees') or '-'} · 자유롭게 수정하세요",
+                 color="gray")]
     blocks += minutes_blocks(notes)
     blocks.append(_b("divider"))
     blocks.append(_b("h2", "전체 녹취록 (원문)"))
